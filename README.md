@@ -9,7 +9,8 @@ All materials can be found on this offical page: <https://reberhardt.com/cs110l/
 Some videos can be found in the 2020-Spring edition: <https://reberhardt.com/cs110l/spring-2020/>
 
 ## Exercises
-
+- [x] [week1](./Exercises/week1)
+- [x] [week2. Hello world](./Exercises/week2)
 
 ## Projects
 
