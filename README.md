@@ -11,6 +11,7 @@ Some videos can be found in the 2020-Spring edition: <https://reberhardt.com/cs1
 ## Exercises
 - [x] [week1](./Exercises/week1)
 - [x] [week2. Hello world](./Exercises/week2)
+- [x] [week3. Error handling and I/O](./Exercises/week3)
 
 ## Projects
 
