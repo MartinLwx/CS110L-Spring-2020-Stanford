@@ -11,7 +11,7 @@ The starter code can be found on this repo: <https://github.com/reberhardt7/cs11
 
 ## Exercises
 
-- [x] [week1. Hello wo](./Exercises/week1)
+- [x] [week1. Hello world](./Exercises/week1)
 - [x] [week2. Hello world](./Exercises/week2)
 - [x] [week3. Error handling and I/O](./Exercises/week3)
 
