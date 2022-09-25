@@ -13,7 +13,7 @@ The starter code can be found on this repo: <https://github.com/reberhardt7/cs11
 
 - [x] [week1. Hello world](./Exercises/week1)
 - [x] [week2. Ownership and structs](./Exercises/week2)
-- [x] [week3. Error handling and I/O](./Exercises/week3)
+- [x] [week3. Error handling, I/O, and traits](./Exercises/week3)
 
 ## Projects
 
