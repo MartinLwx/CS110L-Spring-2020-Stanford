@@ -15,6 +15,7 @@ The starter code can be found on this repo: <https://github.com/reberhardt7/cs11
 - [x] [week2. Ownership and structs](./Exercises/week2)
 - [x] [week3. Error handling, I/O, and traits](./Exercises/week3)
 - [x] [week5. Farm meets multithreading](./Exercises/week5)
+- [x] [week6. Sharing Data by Communicating](./Exercises/week6)
 
 ## Projects
 
