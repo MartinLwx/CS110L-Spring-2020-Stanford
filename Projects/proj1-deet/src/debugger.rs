@@ -58,8 +58,11 @@ impl Debugger {
                         self.inferior = Some(inferior);
                         // TODO (milestone 1): make the inferior run
                         match self.inferior.as_mut().unwrap().run().unwrap() {
-                            Status::Stopped(signal, _) => {
+                            Status::Stopped(signal, instruction_ptr) => {
                                 println!("Child stopped (signal {})", signal);
+                                if let Some(lineno) = DwarfData::get_line_from_addr(&self.debug_data, instruction_ptr) {
+                                    println!("Stopped at {}", lineno);
+                                }
                             }
                             Status::Exited(exit_code) => {
                                 println!("Child exited (status {})", exit_code);
@@ -81,8 +84,11 @@ impl Debugger {
                     }
 
                     match self.inferior.as_mut().unwrap().run().unwrap() {
-                        Status::Stopped(signal, _) => {
+                        Status::Stopped(signal, instruction_ptr) => {
                             println!("Child stopped (signal {})", signal);
+                            if let Some(lineno) = DwarfData::get_line_from_addr(&self.debug_data, instruction_ptr) {
+                                println!("Stopped at {}", lineno);
+                            }
                         }
                         Status::Exited(exit_code) => {
                             println!("Child exited (status {})", exit_code);
