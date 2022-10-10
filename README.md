@@ -19,6 +19,8 @@ The starter code can be found on this repo: <https://github.com/reberhardt7/cs11
 
 ## Projects
 
+- [x] [proj1. The DEET Debugger](./Projects/proj1-deet)
+
 ## Looking for answers for other cs-courses ?
 
 :hugs: Welcome to check my repo [cs-courses](https://github.com/MartinLwx/cs-courses). 

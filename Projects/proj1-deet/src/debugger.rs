@@ -124,19 +124,20 @@ impl Debugger {
                         match DebuggerCommand::parse_address(&bp_addr[1..]) {
                             Some(addr) => {
                                 self.breakpoints.insert(addr, Breakpoint { addr, orig_byte: 0 });
-                                println!("Set breakpoint {} at {}", self.breakpoints.len(), addr);
+                                println!("Set breakpoint {} at {:#x}", self.breakpoints.len(), addr);
                             }
                             None => {
                                 println!("Please use legal hex number :(");
                                 continue;
                             }
                         }
-                    } else if let Some(lineno) = DebuggerCommand::parse_address(&bp_addr)  {
+                    // } else if let Some(lineno) = DebuggerCommand::parse_address(&bp_addr)  {
+                    } else if let Ok(lineno) = bp_addr.parse() {
                         // Case 2. line number
                         match self.debug_data.get_addr_for_line(None, lineno) {
                             Some(addr) => {
                                 self.breakpoints.insert(addr, Breakpoint { addr, orig_byte: 0 });
-                                println!("Set breakpoint {} at {}", self.breakpoints.len(), addr);
+                                println!("Set breakpoint {} at {:#x}", self.breakpoints.len(), addr);
                             }
                             None => {
                                 println!("Please use legal lineno :(");
@@ -148,7 +149,7 @@ impl Debugger {
                         match self.debug_data.get_addr_for_function(None, &bp_addr) {
                             Some(addr) => {
                                 self.breakpoints.insert(addr, Breakpoint { addr, orig_byte: 0 });
-                                println!("Set breakpoint {} at {}", self.breakpoints.len(), addr);
+                                println!("Set breakpoint {} at {:#x}", self.breakpoints.len(), addr);
                             }
                             None => {
                                 println!("Please use legal symbol as the breakpoint :(");
