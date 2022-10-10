@@ -118,13 +118,44 @@ impl Debugger {
 
                 // Milestone 5: Setting breakpoints
                 DebuggerCommand::Breakpoint(bp_addr) => {
-                    if ! bp_addr.starts_with('*') {
-                        println!("Please use legal address as the breakpoint");
-                        continue;
+                    if bp_addr.starts_with('*') {
+                        // Case 1. raw address
+                        println!("Set breakpoint {} at {}", self.breakpoints.len(), &bp_addr[1..]);
+                        match DebuggerCommand::parse_address(&bp_addr[1..]) {
+                            Some(addr) => {
+                                self.breakpoints.insert(addr, Breakpoint { addr, orig_byte: 0 });
+                                println!("Set breakpoint {} at {}", self.breakpoints.len(), addr);
+                            }
+                            None => {
+                                println!("Please use legal hex number :(");
+                                continue;
+                            }
+                        }
+                    } else if let Some(lineno) = DebuggerCommand::parse_address(&bp_addr)  {
+                        // Case 2. line number
+                        match self.debug_data.get_addr_for_line(None, lineno) {
+                            Some(addr) => {
+                                self.breakpoints.insert(addr, Breakpoint { addr, orig_byte: 0 });
+                                println!("Set breakpoint {} at {}", self.breakpoints.len(), addr);
+                            }
+                            None => {
+                                println!("Please use legal lineno :(");
+                                continue;
+                            }
+                        }
+                    } else {
+                        // Case 3. function name or none of the cases
+                        match self.debug_data.get_addr_for_function(None, &bp_addr) {
+                            Some(addr) => {
+                                self.breakpoints.insert(addr, Breakpoint { addr, orig_byte: 0 });
+                                println!("Set breakpoint {} at {}", self.breakpoints.len(), addr);
+                            }
+                            None => {
+                                println!("Please use legal symbol as the breakpoint :(");
+                                continue;
+                            }
+                        }
                     }
-                    println!("Set breakpoint {} at {}", self.breakpoints.len(), &bp_addr[1..]);
-                    let addr = DebuggerCommand::parse_address(&bp_addr[1..]).expect("Please use legal hex number");
-                    self.breakpoints.insert(addr, Breakpoint { addr: addr, orig_byte: 0 });
                 }
 
                 DebuggerCommand::Quit => {

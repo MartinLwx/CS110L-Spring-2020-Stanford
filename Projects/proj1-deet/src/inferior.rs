@@ -119,8 +119,7 @@ impl Inferior {
                 Ok(Status::Signaled(signal)) => return Ok(Status::Signaled(signal)),
                 Ok(Status::Stopped(_, _)) => {
                     // restore the breakpoint
-                    // self.write_byte((reg_vals.rip - 1) as usize, 0xcc).unwrap();
-                    self.write_byte(bp.addr, 0xcc).unwrap();
+                    // self.write_byte(bp.addr, 0xcc).unwrap();
                 }
                 Err(e) => return Err(e),
             }
