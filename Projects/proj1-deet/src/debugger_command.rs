@@ -1,6 +1,7 @@
 pub enum DebuggerCommand {
     Quit,
     Run(Vec<String>),
+    Continue,  // Milestone 2. Stopping, resuming, and restarting the inferior
 }
 
 impl DebuggerCommand {
@@ -13,6 +14,8 @@ impl DebuggerCommand {
                     args.iter().map(|s| s.to_string()).collect(),
                 ))
             }
+            // Milestone 2. Stopping, resuming, and restarting the inferior
+            "c" | "cont" | "continue" => Some(DebuggerCommand::Continue),
             // Default case:
             _ => None,
         }

@@ -77,4 +77,11 @@ impl Inferior {
         ptrace::cont(self.pid(), None)?;
         self.wait(None)
     }
+
+    /// Kill the inferior && reap the killed process
+    pub fn kill(&mut self) {
+       self.child.kill().expect("Child is not running");  // kill existing inferior
+       self.wait(None).unwrap(); // reap the killed process
+       println!("Killing running inferior (pid {})", self.pid());
+    }
 }

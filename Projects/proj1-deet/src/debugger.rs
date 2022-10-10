@@ -32,6 +32,13 @@ impl Debugger {
         loop {
             match self.get_next_command() {
                 DebuggerCommand::Run(args) => {
+                    // Kill any existing inferiors before starting new ones
+                    // , so that there is only one inferior at a time
+                    if self.inferior.is_some() {
+                        self.inferior.as_mut().unwrap().kill();
+                        self.inferior = None;
+                    }
+
                     if let Some(inferior) = Inferior::new(&self.target, &args) {
                         // Create the inferior
                         self.inferior = Some(inferior);
@@ -49,7 +56,32 @@ impl Debugger {
                         println!("Error starting subprocess");
                     }
                 }
+                // Milestone 2. Stopping, resuming, and restarting the inferior
+                DebuggerCommand::Continue => {
+                    // check whether an inferior is running
+                    // , and print an error message if there is not one running.
+                    if self.inferior.is_none() {
+                        println!("No inferior is running");
+                        continue
+                    }
+
+                    match self.inferior.as_mut().unwrap().run().unwrap() {
+                        Status::Stopped(signal, _) => {
+                            println!("Child stopped (signal {})", signal);
+                        }
+                        Status::Exited(exit_code) => {
+                            println!("Child exited (status {})", exit_code);
+                        }
+                        _ => (),
+                    } 
+                }
                 DebuggerCommand::Quit => {
+                    // Kill any existing inferiors before starting new ones
+                    // , so that there is only one inferior at a time
+                    if self.inferior.is_some() {
+                        self.inferior.as_mut().unwrap().kill();
+                        self.inferior = None;
+                    }
                     return;
                 }
             }
