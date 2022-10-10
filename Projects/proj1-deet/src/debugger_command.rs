@@ -1,11 +1,21 @@
 pub enum DebuggerCommand {
     Quit,
     Run(Vec<String>),
-    Continue,  // Milestone 2. Stopping, resuming, and restarting the inferior
+    Continue,  
     Backtrace,
+    Breakpoint(String), 
 }
 
 impl DebuggerCommand {
+    pub fn parse_address(addr: &str) -> Option<usize> {
+        let addr_without_0x = if addr.to_lowercase().starts_with("0x") {
+            &addr[2..]
+        } else {
+            &addr
+        };
+        usize::from_str_radix(addr_without_0x, 16).ok()
+    }
+
     pub fn from_tokens(tokens: &Vec<&str>) -> Option<DebuggerCommand> {
         match tokens[0] {
             "q" | "quit" => Some(DebuggerCommand::Quit),
@@ -15,10 +25,9 @@ impl DebuggerCommand {
                     args.iter().map(|s| s.to_string()).collect(),
                 ))
             }
-            // Milestone 2. Stopping, resuming, and restarting the inferior
             "c" | "cont" | "continue" => Some(DebuggerCommand::Continue),
-            // Milestone 3: Printing a backtrace
             "bt" | "back" | "backtrace" => Some(DebuggerCommand::Backtrace),
+            "b" | "break" => Some(DebuggerCommand::Breakpoint(tokens[1].to_string())),
             // Default case:
             _ => None,
         }

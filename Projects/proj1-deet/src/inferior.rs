@@ -6,6 +6,7 @@ use std::process::Child;
 use std::process::Command;
 use std::os::unix::process::CommandExt;
 use crate::dwarf_data::DwarfData;
+use std::mem::size_of;
 
 pub enum Status {
     /// Indicates inferior stopped. Contains the signal that stopped the process, as well as the
@@ -29,6 +30,11 @@ fn child_traceme() -> Result<(), std::io::Error> {
     )))
 }
 
+fn align_addr_to_word(addr: usize) -> usize {
+    addr & (-(size_of::<usize>() as isize) as usize)
+}
+
+
 pub struct Inferior {
     child: Child,
 }
@@ -36,7 +42,7 @@ pub struct Inferior {
 impl Inferior {
     /// Attempts to start a new inferior process. Returns Some(Inferior) if successful, or None if
     /// an error is encountered.
-    pub fn new(target: &str, args: &Vec<String>) -> Option<Inferior> {
+    pub fn new(target: &str, args: &Vec<String>, breakpoints: &Vec<usize>) -> Option<Inferior> {
         // spawn a child process running our target program
         let mut cmd = Command::new(target);
         cmd.args(args);
@@ -47,9 +53,17 @@ impl Inferior {
         
         // Milestone 1: Run the inferior
         let child = cmd.spawn().ok()?;
-        let inferior = Inferior { child };
+        let mut inferior = Inferior { child };
         match inferior.wait(None) {
-            Ok(_) => Some(inferior),
+            Ok(_) => {
+                // after you wait for SIGTRAP (indicating that the inferior has fully loaded) but before returning
+                // , you should install these breakpoints in the child process.
+                for bp in breakpoints {
+                    inferior.write_byte(bp.clone(), 0xcc).expect("write_byte failed");
+                }
+
+                Some(inferior)
+            }
             _ => None,
         }
     }
@@ -75,7 +89,11 @@ impl Inferior {
 
     // Milestone 1: Run the inferior
     /// Wakes up the inferior and waits until it stops or terminates
-    pub fn run(&mut self) -> Result<Status, nix::Error> {
+    pub fn run(&mut self, breakpoints: &Vec<usize>) -> Result<Status, nix::Error> {
+        // Note: we should be able to use `break *addr` even after the inferio has started running
+        for bp in breakpoints {
+            self.write_byte(bp.clone(), 0xcc).expect("write_byte failed");
+        }
         ptrace::cont(self.pid(), None)?;
         self.wait(None)
     }
@@ -103,5 +121,20 @@ impl Inferior {
             base_ptr = ptrace::read(self.pid(), base_ptr as ptrace::AddressType)? as usize;
         }
         Ok(())
+    }
+
+    fn write_byte(&mut self, addr: usize, val: u8) -> Result<u8, nix::Error> {
+        let aligned_addr = align_addr_to_word(addr);
+        let byte_offset = addr - aligned_addr;
+        let word = ptrace::read(self.pid(), aligned_addr as ptrace::AddressType)? as u64;
+        let orig_byte = (word >> 8 * byte_offset) & 0xff;
+        let masked_word = word & !(0xff << 8 * byte_offset);
+        let updated_word = masked_word | ((val as u64) << 8 * byte_offset);
+        ptrace::write(
+            self.pid(),
+            aligned_addr as ptrace::AddressType,
+            updated_word as *mut std::ffi::c_void,
+        )?;
+        Ok(orig_byte as u8)
     }
 }

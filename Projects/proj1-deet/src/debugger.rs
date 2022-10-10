@@ -10,6 +10,7 @@ pub struct Debugger {
     readline: Editor<()>,
     inferior: Option<Inferior>,
     debug_data: DwarfData,
+    breakpoints: Vec<usize>,
 }
 
 impl Debugger {
@@ -26,6 +27,7 @@ impl Debugger {
                 std::process::exit(1);
             }
         };
+        debug_data.print();
         // TODO (milestone 3): initialize the DwarfData
 
         let history_path = format!("{}/.deet_history", std::env::var("HOME").unwrap());
@@ -39,6 +41,7 @@ impl Debugger {
             readline,
             inferior: None,
             debug_data,
+            breakpoints: vec![],
         }
     }
 
@@ -53,11 +56,11 @@ impl Debugger {
                         self.inferior = None;
                     }
 
-                    if let Some(inferior) = Inferior::new(&self.target, &args) {
+                    if let Some(inferior) = Inferior::new(&self.target, &args, &self.breakpoints) {
                         // Create the inferior
                         self.inferior = Some(inferior);
                         // TODO (milestone 1): make the inferior run
-                        match self.inferior.as_mut().unwrap().run().unwrap() {
+                        match self.inferior.as_mut().unwrap().run(&self.breakpoints).unwrap() {
                             Status::Stopped(signal, instruction_ptr) => {
                                 println!("Child stopped (signal {})", signal);
                                 if let Some(lineno) = DwarfData::get_line_from_addr(&self.debug_data, instruction_ptr) {
@@ -66,6 +69,7 @@ impl Debugger {
                             }
                             Status::Exited(exit_code) => {
                                 println!("Child exited (status {})", exit_code);
+                                self.inferior = None;
                             }
                             _ => (),
                         }
@@ -83,7 +87,8 @@ impl Debugger {
                         continue
                     }
 
-                    match self.inferior.as_mut().unwrap().run().unwrap() {
+
+                    match self.inferior.as_mut().unwrap().run(&self.breakpoints).unwrap() {
                         Status::Stopped(signal, instruction_ptr) => {
                             println!("Child stopped (signal {})", signal);
                             if let Some(lineno) = DwarfData::get_line_from_addr(&self.debug_data, instruction_ptr) {
@@ -92,6 +97,7 @@ impl Debugger {
                         }
                         Status::Exited(exit_code) => {
                             println!("Child exited (status {})", exit_code);
+                            self.inferior = None;
                         }
                         _ => (),
                     } 
@@ -100,6 +106,17 @@ impl Debugger {
                 // Milestone 3: Printing a backtrace
                 DebuggerCommand::Backtrace => {
                     self.inferior.as_mut().unwrap().print_backtrace(&self.debug_data).unwrap();
+                }
+
+                // Milestone 5: Setting breakpoints
+                DebuggerCommand::Breakpoint(bp_addr) => {
+                    if ! bp_addr.starts_with('*') {
+                        println!("Please use legal address as the breakpoint");
+                        continue;
+                    }
+                    println!("Set breakpoint {} at {}", self.breakpoints.len(), &bp_addr[1..]);
+                    let addr = DebuggerCommand::parse_address(&bp_addr[1..]).expect("Please use legal hex number");
+                    self.breakpoints.push(addr);
                 }
 
                 DebuggerCommand::Quit => {
