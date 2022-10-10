@@ -2,6 +2,7 @@ pub enum DebuggerCommand {
     Quit,
     Run(Vec<String>),
     Continue,  // Milestone 2. Stopping, resuming, and restarting the inferior
+    Backtrace,
 }
 
 impl DebuggerCommand {
@@ -16,6 +17,8 @@ impl DebuggerCommand {
             }
             // Milestone 2. Stopping, resuming, and restarting the inferior
             "c" | "cont" | "continue" => Some(DebuggerCommand::Continue),
+            // Milestone 3: Printing a backtrace
+            "bt" | "back" | "backtrace" => Some(DebuggerCommand::Backtrace),
             // Default case:
             _ => None,
         }

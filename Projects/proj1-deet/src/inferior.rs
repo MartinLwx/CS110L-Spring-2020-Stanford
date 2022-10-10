@@ -5,6 +5,7 @@ use nix::unistd::Pid;
 use std::process::Child;
 use std::process::Command;
 use std::os::unix::process::CommandExt;
+use crate::dwarf_data::DwarfData;
 
 pub enum Status {
     /// Indicates inferior stopped. Contains the signal that stopped the process, as well as the
@@ -72,16 +73,35 @@ impl Inferior {
         })
     }
 
+    // Milestone 1: Run the inferior
     /// Wakes up the inferior and waits until it stops or terminates
     pub fn run(&mut self) -> Result<Status, nix::Error> {
         ptrace::cont(self.pid(), None)?;
         self.wait(None)
     }
 
+    // Milestone 2. Stopping, resuming, and restarting the inferior
     /// Kill the inferior && reap the killed process
     pub fn kill(&mut self) {
        self.child.kill().expect("Child is not running");  // kill existing inferior
        self.wait(None).unwrap(); // reap the killed process
        println!("Killing running inferior (pid {})", self.pid());
+    }
+
+    // Milestone 3: Printing a backtrace
+    pub fn print_backtrace(&self, debug_data: &DwarfData) -> Result<(), nix::Error> {
+        let reg_vals = ptrace::getregs(self.pid())?;
+        let (mut instruction_ptr, mut base_ptr) = (reg_vals.rip as usize, reg_vals.rbp as usize);
+        loop {
+            let lineno = DwarfData::get_line_from_addr(debug_data, instruction_ptr).unwrap();
+            let func_name = DwarfData::get_function_from_addr(debug_data, instruction_ptr).unwrap();
+            println!("{} ({})", func_name, lineno);
+            if func_name == "main" {
+                break;
+            }
+            instruction_ptr = ptrace::read(self.pid(), (base_ptr + 8) as ptrace::AddressType)? as usize;
+            base_ptr = ptrace::read(self.pid(), base_ptr as ptrace::AddressType)? as usize;
+        }
+        Ok(())
     }
 }
