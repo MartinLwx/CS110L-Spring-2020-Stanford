@@ -3,6 +3,14 @@ use crate::inferior::{Inferior, Status};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use crate::dwarf_data::{DwarfData, Error as DwarfError};
+use std::collections::HashMap;
+
+// Milestone 6: Continuing from breakpoints
+#[derive(Clone, Debug)]
+pub struct Breakpoint {
+    pub addr: usize,
+    pub orig_byte: u8,
+}
 
 pub struct Debugger {
     target: String,
@@ -10,7 +18,7 @@ pub struct Debugger {
     readline: Editor<()>,
     inferior: Option<Inferior>,
     debug_data: DwarfData,
-    breakpoints: Vec<usize>,
+    breakpoints: HashMap<usize, Breakpoint>,
 }
 
 impl Debugger {
@@ -41,7 +49,7 @@ impl Debugger {
             readline,
             inferior: None,
             debug_data,
-            breakpoints: vec![],
+            breakpoints: HashMap::new(),
         }
     }
 
@@ -56,11 +64,11 @@ impl Debugger {
                         self.inferior = None;
                     }
 
-                    if let Some(inferior) = Inferior::new(&self.target, &args, &self.breakpoints) {
+                    if let Some(inferior) = Inferior::new(&self.target, &args, &mut self.breakpoints) {
                         // Create the inferior
                         self.inferior = Some(inferior);
                         // TODO (milestone 1): make the inferior run
-                        match self.inferior.as_mut().unwrap().run(&self.breakpoints).unwrap() {
+                        match self.inferior.as_mut().unwrap().run(&mut self.breakpoints).unwrap() {
                             Status::Stopped(signal, instruction_ptr) => {
                                 println!("Child stopped (signal {})", signal);
                                 if let Some(lineno) = DwarfData::get_line_from_addr(&self.debug_data, instruction_ptr) {
@@ -88,7 +96,7 @@ impl Debugger {
                     }
 
 
-                    match self.inferior.as_mut().unwrap().run(&self.breakpoints).unwrap() {
+                    match self.inferior.as_mut().unwrap().run(&mut self.breakpoints).unwrap() {
                         Status::Stopped(signal, instruction_ptr) => {
                             println!("Child stopped (signal {})", signal);
                             if let Some(lineno) = DwarfData::get_line_from_addr(&self.debug_data, instruction_ptr) {
@@ -116,7 +124,7 @@ impl Debugger {
                     }
                     println!("Set breakpoint {} at {}", self.breakpoints.len(), &bp_addr[1..]);
                     let addr = DebuggerCommand::parse_address(&bp_addr[1..]).expect("Please use legal hex number");
-                    self.breakpoints.push(addr);
+                    self.breakpoints.insert(addr, Breakpoint { addr: addr, orig_byte: 0 });
                 }
 
                 DebuggerCommand::Quit => {

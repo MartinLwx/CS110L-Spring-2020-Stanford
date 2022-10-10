@@ -2,11 +2,13 @@ use nix::sys::ptrace;
 use nix::sys::signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
+use std::collections::HashMap;
 use std::process::Child;
 use std::process::Command;
 use std::os::unix::process::CommandExt;
 use crate::dwarf_data::DwarfData;
 use std::mem::size_of;
+use crate::debugger::Breakpoint;
 
 pub enum Status {
     /// Indicates inferior stopped. Contains the signal that stopped the process, as well as the
@@ -42,7 +44,7 @@ pub struct Inferior {
 impl Inferior {
     /// Attempts to start a new inferior process. Returns Some(Inferior) if successful, or None if
     /// an error is encountered.
-    pub fn new(target: &str, args: &Vec<String>, breakpoints: &Vec<usize>) -> Option<Inferior> {
+    pub fn new(target: &str, args: &Vec<String>, breakpoints: &mut HashMap<usize, Breakpoint>) -> Option<Inferior> {
         // spawn a child process running our target program
         let mut cmd = Command::new(target);
         cmd.args(args);
@@ -59,7 +61,8 @@ impl Inferior {
                 // after you wait for SIGTRAP (indicating that the inferior has fully loaded) but before returning
                 // , you should install these breakpoints in the child process.
                 for bp in breakpoints {
-                    inferior.write_byte(bp.clone(), 0xcc).expect("write_byte failed");
+                    let orig_byte = inferior.write_byte(bp.0.clone(), 0xcc).expect("write_byte failed");
+                    bp.1.orig_byte = orig_byte; // also, remember the orig_byte
                 }
 
                 Some(inferior)
@@ -89,11 +92,40 @@ impl Inferior {
 
     // Milestone 1: Run the inferior
     /// Wakes up the inferior and waits until it stops or terminates
-    pub fn run(&mut self, breakpoints: &Vec<usize>) -> Result<Status, nix::Error> {
+    pub fn run(&mut self, breakpoints: &mut HashMap<usize, Breakpoint>)-> Result<Status, nix::Error> {
         // Note: we should be able to use `break *addr` even after the inferio has started running
-        for bp in breakpoints {
-            self.write_byte(bp.clone(), 0xcc).expect("write_byte failed");
+        let clone_bps = breakpoints.clone();
+        for bp in clone_bps{
+            self.write_byte(bp.0.clone(), 0xcc).expect("write_byte failed");
+            // we only reinstall the breakpoints, so we don't need to remember the orig_byte again
         }
+
+        let mut reg_vals = ptrace::getregs(self.pid())?;
+        // if inferior stopped at a breakpoint (i.e. (%rip - 1) matches a breakpoint address):
+        // use .get() to check if (%rip - 1) matches a breakpoint address
+        if let Some(bp) = breakpoints.get(&((reg_vals.rip - 1) as usize)) {
+            // restore the first byte of the instruction we replaced
+            self.write_byte(bp.addr, bp.orig_byte).unwrap();
+            // set %rip = %rip - 1 to rewind the instruction pointer
+            reg_vals.rip -= 1;
+            ptrace::setregs(self.pid(), reg_vals).unwrap();
+
+            // Note: the breakpoint is no longer in the code, so we need to reset the breakpoint
+            // ptrace::step to go to next instruction
+            ptrace::step(self.pid(), None).unwrap();
+            // wait for inferior to stop due to SIGTRAP, return if the inferior terminates here
+            match self.wait(None) {
+                Ok(Status::Exited(exit_code)) => return Ok(Status::Exited(exit_code)),
+                Ok(Status::Signaled(signal)) => return Ok(Status::Signaled(signal)),
+                Ok(Status::Stopped(_, _)) => {
+                    // restore the breakpoint
+                    // self.write_byte((reg_vals.rip - 1) as usize, 0xcc).unwrap();
+                    self.write_byte(bp.addr, 0xcc).unwrap();
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
         ptrace::cont(self.pid(), None)?;
         self.wait(None)
     }
