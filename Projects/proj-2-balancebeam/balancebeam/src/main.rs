@@ -1,9 +1,11 @@
 mod request;
 mod response;
 
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use rand::{Rng, SeedableRng};
 use std::net::{TcpListener, TcpStream};
+use std::sync::Arc;
+use threadpool::ThreadPool;
 
 /// Contains information parsed from the command-line invocation of balancebeam. The Clap macros
 /// provide a fancy way to automatically construct a command-line argument parser.
@@ -85,10 +87,19 @@ fn main() {
         active_health_check_path: options.active_health_check_path,
         max_requests_per_minute: options.max_requests_per_minute,
     };
+
+    // create a thread pool
+    let n_workers = 4;
+    let pool = ThreadPool::new(n_workers);
+    let arc_state = Arc::new(state);
+
     for stream in listener.incoming() {
         if let Ok(stream) = stream {
             // Handle the connection!
-            handle_connection(stream, &state);
+            let another_arc_state = arc_state.clone();
+            pool.execute(move || {
+                handle_connection(stream, &another_arc_state);
+            });
         }
     }
 }
