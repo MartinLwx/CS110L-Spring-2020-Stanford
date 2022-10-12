@@ -1,11 +1,14 @@
 mod request;
 mod response;
 
+use std::collections::HashSet;
 // because the compile error, I change the clap's version to 4.0.12
 use clap::Parser;
 use rand::{Rng, SeedableRng};
+use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::RwLock;
 
 /// Contains information parsed from the command-line invocation of balancebeam. The Clap macros
 /// provide a fancy way to automatically construct a command-line argument parser.
@@ -52,6 +55,11 @@ struct ProxyState {
 
     /// Addresses of servers that we are proxying to
     upstream_addresses: Vec<String>,
+
+    // we only use RwLock on this field rather than the whole struct
+    // keep lock as small as possible
+    /// Addresses of servers that are dead
+    dead_upstream: RwLock<HashSet<String>>,
 }
 
 #[tokio::main]
@@ -87,6 +95,7 @@ async fn main() {
         active_health_check_interval: options.active_health_check_interval,
         active_health_check_path: options.active_health_check_path,
         max_requests_per_minute: options.max_requests_per_minute,
+        dead_upstream: RwLock::new(HashSet::new()),
     };
 
     // create a thread pool
@@ -107,15 +116,53 @@ async fn main() {
     }
 }
 
-async fn connect_to_upstream(state: &ProxyState) -> Result<TcpStream, std::io::Error> {
-    let mut rng = rand::rngs::StdRng::from_entropy();
-    let upstream_idx = rng.gen_range(0, state.upstream_addresses.len());
-    let upstream_ip = &state.upstream_addresses[upstream_idx];
-    TcpStream::connect(upstream_ip).await.or_else(|err| {
-        log::error!("Failed to connect to upstream {}: {}", upstream_ip, err);
-        Err(err)
-    })
-    // TODO: implement failover (milestone 3)
+async fn connect_to_upstream(state: &Arc<ProxyState>) -> Result<TcpStream, std::io::Error> {
+    loop {
+        // just in case that the state.upstream_addresses are empty at first
+        if state.upstream_addresses.len() == state.dead_upstream.read().await.len() {
+            log::error!("No upstream available");
+            // errors can be created from strings
+            return Err(Error::new(ErrorKind::Other, "No upstream available"));
+        }
+
+        // in every loop, we only check the available upstream ips
+        let mut upstream_available = state.upstream_addresses.clone();
+        for upstream_ip in state.upstream_addresses.iter().as_ref() {
+            if state.dead_upstream.read().await.get(upstream_ip).is_none() {
+                upstream_available.push(upstream_ip.to_string());
+            }
+        }
+
+        let mut rng = rand::rngs::StdRng::from_entropy();
+        // let upstream_idx = rng.gen_range(0, state.upstream_addresses.len());
+        // let upstream_ip = &state.upstream_addresses[upstream_idx];
+        let upstream_idx = rng.gen_range(0, upstream_available.len());
+        let upstream_ip = &upstream_available[upstream_idx];
+
+        // TODO: implement failover (milestone 3)
+        match TcpStream::connect(upstream_ip).await {
+            Ok(tcp_stream) => {
+                return Ok(tcp_stream);
+            }
+            Err(err) => {
+                state
+                    .dead_upstream
+                    .write()
+                    .await
+                    .insert(upstream_ip.to_string());
+
+                log::debug!("Connect {} failed, try a new one", upstream_ip);
+
+                // Clients should only receive an error if all upstreams are dead.
+                if state.upstream_addresses.len() == state.dead_upstream.read().await.len() {
+                    log::error!("Failed to connect to upstream {}: {}", upstream_ip, err);
+                    return Err(err);
+                } else {
+                    continue;
+                }
+            }
+        }
+    }
 }
 
 async fn send_response(client_conn: &mut TcpStream, response: &http::Response<Vec<u8>>) {
@@ -131,7 +178,7 @@ async fn send_response(client_conn: &mut TcpStream, response: &http::Response<Ve
     }
 }
 
-async fn handle_connection(mut client_conn: TcpStream, state: &ProxyState) {
+async fn handle_connection(mut client_conn: TcpStream, state: &Arc<ProxyState>) {
     let client_ip = client_conn.peer_addr().unwrap().ip().to_string();
     log::info!("Connection received from {}", client_ip);
 

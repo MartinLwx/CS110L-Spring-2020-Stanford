@@ -20,6 +20,7 @@ The starter code can be found on this repo: <https://github.com/reberhardt7/cs11
 ## Projects
 
 - [x] [proj1. The DEET Debugger](./Projects/proj1-deet)
+- [x] [proj2. Balancebeam](./Projects/proj-2-balancebeam/balancebeam)
 
 ## Looking for answers for other cs-courses ?
 
