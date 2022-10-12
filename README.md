@@ -22,6 +22,13 @@ The starter code can be found on this repo: <https://github.com/reberhardt7/cs11
 - [x] [proj1. The DEET Debugger](./Projects/proj1-deet)
 - [x] [proj2. Balancebeam](./Projects/proj-2-balancebeam/balancebeam)
 
+## Highlights
+
+- Basic and intermediate Rust programming 👍 e.g. *Ownership, traits, multithreading, etc*
+- Memory safety 👍
+- System programming 👍
+- How to design a better system? e.g. *Error handling, information security, etc"
+
 ## Looking for answers for other cs-courses ?
 
 :hugs: Welcome to check my repo [cs-courses](https://github.com/MartinLwx/cs-courses). 
