@@ -9,6 +9,7 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
+use tokio::time::{self, Duration};
 
 /// Contains information parsed from the command-line invocation of balancebeam. The Clap macros
 /// provide a fancy way to automatically construct a command-line argument parser.
@@ -42,11 +43,9 @@ struct CmdOptions {
 /// You should add fields to this struct in later milestones.
 struct ProxyState {
     /// How frequently we check whether upstream servers are alive (Milestone 4)
-    #[allow(dead_code)]
     active_health_check_interval: usize,
 
     /// Where we should send requests when doing active health checks (Milestone 4)
-    #[allow(dead_code)]
     active_health_check_path: String,
 
     /// Maximum number of requests an individual IP can make in a minute (Milestone 5)
@@ -98,8 +97,12 @@ async fn main() {
         dead_upstream: RwLock::new(HashSet::new()),
     };
 
-    // create a thread pool
+    // Milestone 4
     let arc_state = Arc::new(state);
+    let health_check_state = arc_state.clone();
+    tokio::spawn(async move {
+        health_check(&health_check_state).await;
+    });
 
     loop {
         match listener.accept().await {
@@ -116,6 +119,64 @@ async fn main() {
     }
 }
 
+// Milestone 4
+async fn health_check(state: &Arc<ProxyState>) {
+    let mut interval = time::interval(Duration::from_secs(
+        state.active_health_check_interval as u64,
+    ));
+    // Note: according to the docs, the 1st tick will hit immediately
+    interval.tick().await;
+    loop {
+        interval.tick().await;
+
+        // run health check
+        for upstream_ip in state.upstream_addresses.iter().as_ref() {
+            let request = http::Request::builder()
+                .method(http::Method::GET)
+                .uri(&state.active_health_check_path)
+                .header("Host", upstream_ip)
+                .body(Vec::new())
+                .unwrap();
+
+            // If a failed upstream returns HTTP 200, put it back in the rotation of upstream servers.
+            // If an online upstream returns a non-200 status code, mark that server as failed.
+            let mut tcp_stream = TcpStream::connect(upstream_ip)
+                .await
+                .expect("Error when try to form a TcpStream");
+            request::write_to_stream(&request, &mut tcp_stream)
+                .await
+                .expect("Failed to send request to upstream");
+
+            match response::read_from_stream(&mut tcp_stream, &http::Method::GET).await {
+                Ok(response) => {
+                    if response.status() == http::StatusCode::OK {
+                        if state.dead_upstream.write().await.remove(upstream_ip) {
+                            log::debug!("[---------] Live {}", upstream_ip);
+                        }
+                    } else {
+                        {
+                            state
+                                .dead_upstream
+                                .write()
+                                .await
+                                .insert(upstream_ip.to_string());
+                        }
+                        log::debug!("[---------] Fail {}", upstream_ip);
+                        log::debug!(
+                            "[---------] Fail list {:?}",
+                            state.dead_upstream.read().await
+                        );
+                    }
+                    // the lock drop here
+                }
+                Err(error) => {
+                    log::error!("Error reading response from server: {:?}", error);
+                }
+            };
+        }
+    }
+}
+
 async fn connect_to_upstream(state: &Arc<ProxyState>) -> Result<TcpStream, std::io::Error> {
     loop {
         // just in case that the state.upstream_addresses are empty at first
@@ -125,13 +186,24 @@ async fn connect_to_upstream(state: &Arc<ProxyState>) -> Result<TcpStream, std::
             return Err(Error::new(ErrorKind::Other, "No upstream available"));
         }
 
+        log::debug!(
+            "[---------] All upstreams ips: {:?}",
+            state.upstream_addresses
+        );
+
         // in every loop, we only check the available upstream ips
-        let mut upstream_available = state.upstream_addresses.clone();
+        let mut upstream_available = Vec::new();
+        log::debug!(
+            "[---------] Ready to find available upstreams, current fail list: {:?}",
+            state.dead_upstream.read().await
+        );
         for upstream_ip in state.upstream_addresses.iter().as_ref() {
+            // Note: the server may contains same Ip address
             if state.dead_upstream.read().await.get(upstream_ip).is_none() {
                 upstream_available.push(upstream_ip.to_string());
             }
         }
+        log::debug!("[---------] Current available: {:?}", upstream_available);
 
         let mut rng = rand::rngs::StdRng::from_entropy();
         // let upstream_idx = rng.gen_range(0, state.upstream_addresses.len());
@@ -142,20 +214,23 @@ async fn connect_to_upstream(state: &Arc<ProxyState>) -> Result<TcpStream, std::
         // TODO: implement failover (milestone 3)
         match TcpStream::connect(upstream_ip).await {
             Ok(tcp_stream) => {
+                log::debug!("[---------] Use {}", upstream_ip);
                 return Ok(tcp_stream);
             }
             Err(err) => {
-                state
-                    .dead_upstream
-                    .write()
-                    .await
-                    .insert(upstream_ip.to_string());
+                {
+                    state
+                        .dead_upstream
+                        .write()
+                        .await
+                        .insert(upstream_ip.to_string());
+                }
 
                 log::debug!("Connect {} failed, try a new one", upstream_ip);
 
                 // Clients should only receive an error if all upstreams are dead.
                 if state.upstream_addresses.len() == state.dead_upstream.read().await.len() {
-                    log::error!("Failed to connect to upstream {}: {}", upstream_ip, err);
+                    log::error!("All servers are down");
                     return Err(err);
                 } else {
                     continue;
