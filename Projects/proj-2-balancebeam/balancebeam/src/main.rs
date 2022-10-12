@@ -1,7 +1,7 @@
 mod request;
 mod response;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 // because the compile error, I change the clap's version to 4.0.12
 use clap::Parser;
 use rand::{Rng, SeedableRng};
@@ -16,6 +16,7 @@ use tokio::time::{self, Duration};
 #[derive(Parser, Debug)]
 #[command(about = "Fun with load balancing")]
 struct CmdOptions {
+    // in clap 4.0.12, we use #[arg(...)] rather than #[clap(...)]
     /// IP/port to bind to
     #[arg(short, long, default_value = "0.0.0.0:1100")]
     bind: String,
@@ -49,7 +50,6 @@ struct ProxyState {
     active_health_check_path: String,
 
     /// Maximum number of requests an individual IP can make in a minute (Milestone 5)
-    #[allow(dead_code)]
     max_requests_per_minute: usize,
 
     /// Addresses of servers that we are proxying to
@@ -59,6 +59,9 @@ struct ProxyState {
     // keep lock as small as possible
     /// Addresses of servers that are dead
     dead_upstream: RwLock<HashSet<String>>,
+
+    /// Track the { IP: requests count } relations
+    requests_cnt: RwLock<HashMap<String, usize>>,
 }
 
 #[tokio::main]
@@ -95,14 +98,32 @@ async fn main() {
         active_health_check_path: options.active_health_check_path,
         max_requests_per_minute: options.max_requests_per_minute,
         dead_upstream: RwLock::new(HashSet::new()),
+        requests_cnt: RwLock::new(HashMap::new()),
     };
 
     // Milestone 4
     let arc_state = Arc::new(state);
     let health_check_state = arc_state.clone();
+    // spawn a new thread to do health_check
     tokio::spawn(async move {
         health_check(&health_check_state).await;
     });
+
+    // Milestone 5
+    let rate_limit_state = arc_state.clone();
+    // If it is zero, rate limiting should be disabled.
+    if rate_limit_state.max_requests_per_minute != 0 {
+        let mut rate_interval = time::interval(Duration::from_secs(60));
+        rate_interval.tick().await; // similar to what we did in the Milestone 4
+        tokio::spawn(async move {
+            rate_interval.tick().await;
+            loop {
+                // every 60 seconds, we reset the counter, i.e. state.
+                rate_limit_state.requests_cnt.write().await.clear();
+                log::debug!("[---------] Reset the requests_cnt HashMap")
+            }
+        });
+    }
 
     loop {
         match listener.accept().await {
@@ -255,7 +276,6 @@ async fn send_response(client_conn: &mut TcpStream, response: &http::Response<Ve
 
 async fn handle_connection(mut client_conn: TcpStream, state: &Arc<ProxyState>) {
     let client_ip = client_conn.peer_addr().unwrap().ip().to_string();
-    log::info!("Connection received from {}", client_ip);
 
     // Open a connection to a random destination server
     let mut upstream_conn = match connect_to_upstream(state).await {
@@ -304,6 +324,21 @@ async fn handle_connection(mut client_conn: TcpStream, state: &Arc<ProxyState>) 
             upstream_ip,
             request::format_request_line(&request)
         );
+        // Now, we can increase the client_ip's counter
+        if state.max_requests_per_minute != 0 {
+            let mut lock = state.requests_cnt.write().await;
+            lock.entry(client_ip.clone())
+                .and_modify(|counter| *counter += 1)
+                .or_insert(1);
+
+            if lock.get(&client_ip).unwrap().clone() > state.max_requests_per_minute {
+                let response = response::make_http_error(http::StatusCode::TOO_MANY_REQUESTS);
+                send_response(&mut client_conn, &response).await;
+                return;
+            }
+
+            log::debug!("[---------] The current rate list stat: {:?}", lock);
+        }
 
         // Add X-Forwarded-For header so that the upstream server knows the client's IP address.
         // (We're the ones connecting directly to the upstream server, so without this header, the
